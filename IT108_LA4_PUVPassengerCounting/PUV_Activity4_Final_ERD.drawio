@@ -1,0 +1,43 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Final ERD - PUV Passenger Counting" id="0">
+    <mxGraphModel dx="1084" dy="592" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="users" parent="1" style="shape=swimlane;html=1;rounded=0;startSize=32;horizontal=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=16;" value="&lt;b&gt;users_tbl&lt;/b&gt;" vertex="1">
+          <mxGeometry height="190" width="280" x="60" y="100" as="geometry" />
+        </mxCell>
+        <mxCell id="users_data" parent="users" style="text;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=8;fontSize=13;whiteSpace=wrap;" value="&lt;b&gt;PK&lt;/b&gt; user_id : BIGINT (Identity)&lt;br&gt;full_name : TEXT NOT NULL&lt;br&gt;email : TEXT UNIQUE NOT NULL&lt;br&gt;password_hash : TEXT NOT NULL&lt;br&gt;role : TEXT NOT NULL" vertex="1">
+          <mxGeometry height="158" width="280" y="32" as="geometry" />
+        </mxCell>
+        <mxCell id="puvs" parent="1" style="shape=swimlane;html=1;rounded=0;startSize=32;horizontal=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=16;" value="&lt;b&gt;puvs_tbl&lt;/b&gt;" vertex="1">
+          <mxGeometry height="150" width="280" x="650" y="100" as="geometry" />
+        </mxCell>
+        <mxCell id="puvs_data" parent="puvs" style="text;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=8;fontSize=13;whiteSpace=wrap;" value="&lt;b&gt;PK&lt;/b&gt; puv_id : BIGINT (Identity)&lt;br&gt;plate_number : TEXT UNIQUE NOT NULL&lt;br&gt;puv_type : TEXT NOT NULL" vertex="1">
+          <mxGeometry height="118" width="280" y="32" as="geometry" />
+        </mxCell>
+        <mxCell id="counting" parent="1" style="shape=swimlane;html=1;rounded=0;startSize=32;horizontal=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=16;" value="&lt;b&gt;counting_records_tbl&lt;/b&gt;" vertex="1">
+          <mxGeometry height="250" width="380" x="300" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="counting_data" parent="counting" style="text;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=8;fontSize=13;whiteSpace=wrap;" value="&lt;b&gt;PK&lt;/b&gt; count_id : BIGINT (Identity)&lt;br&gt;&lt;b&gt;FK&lt;/b&gt; user_id : BIGINT NOT NULL&lt;br&gt;&lt;b&gt;FK&lt;/b&gt; puv_id : BIGINT NOT NULL&lt;br&gt;image_path : TEXT NOT NULL&lt;br&gt;passenger_count : INTEGER NOT NULL&lt;br&gt;status : TEXT NOT NULL&lt;br&gt;processed_at : TIMESTAMPTZ NULL" vertex="1">
+          <mxGeometry height="218" width="380" y="32" as="geometry" />
+        </mxCell>
+        <mxCell id="detection" parent="1" style="shape=swimlane;html=1;rounded=0;startSize=32;horizontal=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=16;" value="&lt;b&gt;detection_tbl&lt;/b&gt;" vertex="1">
+          <mxGeometry height="250" width="320" x="780" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="detection_data" parent="detection" style="text;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=8;fontSize=13;whiteSpace=wrap;" value="&lt;b&gt;PK&lt;/b&gt; detection_id : BIGINT (Identity)&lt;br&gt;&lt;b&gt;FK&lt;/b&gt; count_id : BIGINT NOT NULL&lt;br&gt;object_class : TEXT NOT NULL&lt;br&gt;confidence : NUMERIC(5,4) NOT NULL&lt;br&gt;x1 : NUMERIC(10,4) NOT NULL&lt;br&gt;y1 : NUMERIC(10,4) NOT NULL&lt;br&gt;x2 : NUMERIC(10,4) NOT NULL&lt;br&gt;y2 : NUMERIC(10,4) NOT NULL" vertex="1">
+          <mxGeometry height="218" width="320" y="32" as="geometry" />
+        </mxCell>
+        <mxCell id="rel_user" edge="1" parent="1" source="users" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;strokeWidth=2;" target="counting" value="1 : 0..*">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel_puv" edge="1" parent="1" source="puvs" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;strokeWidth=2;" target="counting" value="1 : 0..*">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel_detection" edge="1" parent="1" source="counting" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;strokeWidth=2;" target="detection" value="1 : 0..*">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
