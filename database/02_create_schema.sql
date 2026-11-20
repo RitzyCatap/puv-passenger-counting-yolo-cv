@@ -49,7 +49,6 @@ CREATE TABLE users_tbl (
 
 CREATE TABLE puvs_tbl (
     puv_id SERIAL PRIMARY KEY,
-    plate_number VARCHAR(20) NOT NULL UNIQUE,
     puv_type VARCHAR(50) NOT NULL,
     capacity INTEGER NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -145,4 +144,26 @@ CREATE TABLE detection_tbl (
             confidence >= 0
             AND confidence <= 1
         )
+);
+
+
+-- ============================================================
+-- TABLE 5: Audit Table
+--
+-- Purpose:
+-- 
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS
+passenger_counting.counting_status_audit_tbl (
+    audit_id SERIAL PRIMARY KEY,
+    count_id INTEGER NOT NULL,
+    old_status VARCHAR(20) NOT NULL,
+    new_status VARCHAR(20) NOT NULL,
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_audit_count
+        FOREIGN KEY (count_id)
+        REFERENCES passenger_counting.counting_records_tbl(count_id)
+        ON DELETE CASCADE
 );
