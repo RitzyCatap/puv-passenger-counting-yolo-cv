@@ -2,6 +2,9 @@ import 'package:material_ui/material_ui.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../constants/app_colors.dart';
+import '../../services/api_service.dart';
+import '../../services/auth_service.dart';
+import '../../services/session_manager.dart';
 import '../../widgets/brand_logo.dart';
 import '../../widgets/app_text_field.dart';
 import '../../widgets/app_button.dart';
@@ -20,11 +23,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
   final TextEditingController _passwordController = TextEditingController();
 
+  final AuthService _authService = AuthService();
+  final SessionManager _sessionManager = SessionManager.instance;
+
   bool _isLoading = false;
   String? _errorMessage;
 
   @override
   void dispose() {
+    _authService.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -62,8 +69,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // ==========================================================
   // LOGIN HANDLER
-  // Temporary frontend-only implementation.
-  // Actual authentication will be connected to FastAPI later.
+  // Authenticates through the FastAPI backend.
+  // Establishes an in-memory authenticated session.
   // ==========================================================
 
   Future<void> _handleLogin() async {
@@ -83,17 +90,44 @@ class _LoginScreenState extends State<LoginScreen> {
       _isLoading = true;
     });
 
-    await Future.delayed(const Duration(milliseconds: 700));
+    try {
+      final session = await _authService.login(
+        email: _emailController.text,
+        password: _passwordController.text,
+      );
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      _isLoading = false;
+      _passwordController.clear();
 
-      _errorMessage =
-          'Authentication is not connected yet. '
-          'Please try again once the backend is available.';
-    });
+      _sessionManager.startSession(session);
+
+      if (!mounted) return;
+
+      if (session.user.isAdmin) {
+        context.go('/dashboard/admin');
+      } else if (session.user.isOperator) {
+        context.go('/dashboard/operator');
+      }
+    } on ApiException catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _errorMessage = error.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        _errorMessage = 'Unable to sign in. Please try again.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   void _clearError(String value) {

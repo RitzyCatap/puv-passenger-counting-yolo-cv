@@ -2,6 +2,9 @@ import 'package:material_ui/material_ui.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../constants/app_colors.dart';
+import '../../services/session_manager.dart';
+import '../../services/auth_service.dart';
+import '../../services/api_service.dart';
 import '../../widgets/dashboard_layout.dart';
 import '../dashboard_overview.dart';
 import '../puv_management_screen.dart';
@@ -83,6 +86,39 @@ class _OperatorDashboardState extends State<OperatorDashboard> {
     );
 
     if (confirmed == true && mounted) {
+      final manager = SessionManager.instance;
+      final token = manager.accessToken;
+
+      if (token != null) {
+        final service = AuthService();
+
+        try {
+          await service.logout(token);
+        } on ApiException catch (error) {
+          if (error.statusCode != 401) {
+            if (mounted) {
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(SnackBar(content: Text(error.message)));
+            }
+            return;
+          }
+        } catch (_) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Unable to sign out securely.')),
+            );
+          }
+          return;
+        } finally {
+          service.dispose();
+        }
+
+        if (manager.accessToken != token) return;
+      }
+
+      manager.clearSession();
+
+      if (!mounted) return;
       context.go('/login');
     }
   }
@@ -135,7 +171,7 @@ class _OperatorDashboardState extends State<OperatorDashboard> {
   Widget build(BuildContext context) {
     return DashboardLayout(
       role: DashboardRole.operator,
-      userName: 'Operator',
+      userName: SessionManager.instance.user?.fullName ?? 'Operator',
       selectedSection: _selectedSection,
       onSectionChanged: _changeSection,
       onLogout: _handleLogout,

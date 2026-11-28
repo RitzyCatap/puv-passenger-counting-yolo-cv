@@ -21,15 +21,18 @@ class ApiService {
 
   ApiService({http.Client? client}) : _client = client ?? http.Client();
 
-  Map<String, String> get _headers => {
+  Map<String, String> _headers(String? accessToken) => {
     'Accept': 'application/json',
     'Content-Type': 'application/json',
+    if (accessToken != null && accessToken.isNotEmpty)
+      'Authorization': 'Bearer $accessToken',
   };
 
   // GET request
-  Future<dynamic> get(String path) async {
+  Future<dynamic> get(String path, {String? accessToken}) async {
     return _execute(
-      () => _client.get(ApiConfig.endpoint(path), headers: _headers),
+      () =>
+          _client.get(ApiConfig.endpoint(path), headers: _headers(accessToken)),
     );
   }
 
@@ -37,31 +40,39 @@ class ApiService {
   Future<dynamic> post(
     String path, {
     required Map<String, dynamic> body,
+    String? accessToken,
   }) async {
     return _execute(
       () => _client.post(
         ApiConfig.endpoint(path),
-        headers: _headers,
+        headers: _headers(accessToken),
         body: jsonEncode(body),
       ),
     );
   }
 
   // PUT request
-  Future<dynamic> put(String path, {required Map<String, dynamic> body}) async {
+  Future<dynamic> put(
+    String path, {
+    required Map<String, dynamic> body,
+    String? accessToken,
+  }) async {
     return _execute(
       () => _client.put(
         ApiConfig.endpoint(path),
-        headers: _headers,
+        headers: _headers(accessToken),
         body: jsonEncode(body),
       ),
     );
   }
 
   // DELETE request
-  Future<dynamic> delete(String path) async {
+  Future<dynamic> delete(String path, {String? accessToken}) async {
     return _execute(
-      () => _client.delete(ApiConfig.endpoint(path), headers: _headers),
+      () => _client.delete(
+        ApiConfig.endpoint(path),
+        headers: _headers(accessToken),
+      ),
     );
   }
 

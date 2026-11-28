@@ -31,6 +31,10 @@ class ApiConfig {
   static const String health = '/health';
   static const String databaseHealth = '/db-health';
   static const String puvs = '/puvs/';
+  static const String login = '/api/auth/login';
+  static const String currentUser = '/api/auth/me';
+  static const String logout = '/api/auth/logout';
+  static const String operators = '/api/auth/operators';
 
   static String puvById(int puvId) {
     return '/puvs/$puvId';

@@ -1,6 +1,10 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../constants/app_colors.dart';
+import '../../models/operator_model.dart';
+import '../../services/auth_service.dart';
+import '../../services/api_service.dart';
+import '../../services/session_manager.dart';
 import '../../widgets/app_text_field.dart';
 import '../../widgets/app_button.dart';
 
@@ -14,23 +18,109 @@ class UserManagementScreen extends StatefulWidget {
 class _UserManagementScreenState extends State<UserManagementScreen> {
   final TextEditingController _searchController = TextEditingController();
 
+  final AuthService _authService = AuthService();
+
+  final SessionManager _session = SessionManager.instance;
+
+  List<OperatorModel> _operators = [];
+
+  bool _loading = false;
+  String? _loadError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadOperators();
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
+    _authService.dispose();
     super.dispose();
   }
 
-  // ==========================================================
-  // REGISTER OPERATOR DIALOG
-  // ==========================================================
+  Future<void> _loadOperators() async {
+    if (_loading) return;
+
+    final token = _session.accessToken;
+
+    if (!_session.isAdmin || token == null) {
+      setState(() {
+        _operators = [];
+        _loadError = 'Administrator access is required.';
+      });
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
+
+    try {
+      final result = await _authService.getOperators(token);
+
+      if (!mounted || _session.accessToken != token) {
+        return;
+      }
+
+      setState(() {
+        _operators = result;
+      });
+    } on ApiException catch (error) {
+      if (!mounted || _session.accessToken != token) {
+        return;
+      }
+
+      if (error.statusCode == 401) {
+        _session.clearSession();
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _operators = [];
+        _loadError = error.message;
+      });
+    } catch (_) {
+      if (!mounted || _session.accessToken != token) {
+        return;
+      }
+
+      setState(() {
+        _operators = [];
+        _loadError = 'Unable to load operator accounts.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
 
   Future<void> _openRegistrationDialog() async {
-    await showDialog<void>(
+    if (!_session.isAdmin) return;
+
+    final created = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (context) {
         return const _RegisterOperatorDialog();
       },
     );
+
+    if (!mounted) return;
+
+    if (created == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Operator account created successfully.')),
+      );
+
+      await _loadOperators();
+    }
   }
 
   // ==========================================================
@@ -190,7 +280,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Registered users',
+                  'Registered operators',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
@@ -201,7 +291,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 const SizedBox(height: 6),
 
                 const Text(
-                  'View authorized accounts in SakaySense.',
+                  'View registered operator accounts in SakaySense.',
                   style: TextStyle(
                     fontSize: 13,
                     color: AppColors.textSecondary,
@@ -217,8 +307,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                   child: TextField(
                     controller: _searchController,
 
-                    // Enabled when the user-list API is connected.
-                    enabled: false,
+                    enabled: !_loading,
+                    onChanged: (_) => setState(() {}),
 
                     decoration: const InputDecoration(
                       hintText: 'Search by name or email',
@@ -234,7 +324,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
           if (!isMobile) _buildTableHeader(),
 
-          _buildUnavailableState(),
+          _buildOperatorRecords(isMobile),
         ],
       ),
     );
@@ -264,65 +354,153 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   }
 
   // ==========================================================
-  // UNAVAILABLE STATE
+  // OPERATOR RECORDS
   // ==========================================================
 
-  Widget _buildUnavailableState() {
+  Widget _buildOperatorRecords(bool isMobile) {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.all(40),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_loadError != null) {
+      return _buildListMessage(
+        icon: Icons.error_outline,
+        message: _loadError!,
+        retry: true,
+      );
+    }
+
+    final query = _searchController.text.trim().toLowerCase();
+
+    final filtered = _operators.where((operator) {
+      return operator.user.fullName.toLowerCase().contains(query) ||
+          operator.user.email.toLowerCase().contains(query);
+    }).toList();
+
+    if (filtered.isEmpty) {
+      return _buildListMessage(
+        icon: Icons.people_outline,
+        message: _operators.isEmpty
+            ? 'No operator accounts registered yet.'
+            : 'No matching operator accounts.',
+      );
+    }
+
+    return Column(
+      children: [
+        for (final operator in filtered) _buildOperatorRow(operator, isMobile),
+
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Showing ${filtered.length} '
+                  'of ${_operators.length} operators',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+
+              IconButton(
+                tooltip: 'Refresh operator list',
+                onPressed: _loadOperators,
+                icon: const Icon(Icons.refresh),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildListMessage({
+    required IconData icon,
+    required String message,
+    bool retry = false,
+  }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 55),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 45),
       child: Center(
         child: Column(
           children: [
-            Container(
-              width: 65,
-              height: 65,
-              decoration: BoxDecoration(
-                color: AppColors.primaryLight,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                Icons.people_outline,
-                color: AppColors.primary,
-                size: 32,
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            const Text(
-              'User records unavailable',
+            Icon(icon, size: 42, color: AppColors.primary),
+            const SizedBox(height: 16),
+            Text(
+              message,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
-              ),
-            ),
-
-            const SizedBox(height: 9),
-
-            const Text(
-              'Registered users will appear here '
-              'once the backend API is connected.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                height: 1.6,
+              style: const TextStyle(
                 color: AppColors.textSecondary,
+                fontSize: 14,
               ),
             ),
-
-            const SizedBox(height: 22),
-
-            AppButton(
-              label: 'Register operator',
-              icon: Icons.person_add_outlined,
-              type: AppButtonType.secondary,
-              onPressed: _openRegistrationDialog,
-            ),
+            const SizedBox(height: 18),
+            if (retry)
+              AppButton(
+                label: 'Try again',
+                icon: Icons.refresh,
+                type: AppButtonType.secondary,
+                onPressed: _loadOperators,
+              )
+            else if (_operators.isEmpty)
+              AppButton(
+                label: 'Register operator',
+                icon: Icons.person_add_outlined,
+                type: AppButtonType.secondary,
+                onPressed: _openRegistrationDialog,
+              ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildOperatorRow(OperatorModel operator, bool isMobile) {
+    final user = operator.user;
+
+    const style = TextStyle(fontSize: 13, color: AppColors.textPrimary);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppColors.border)),
+      ),
+      child: isMobile
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  user.fullName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                    color: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(user.email, style: style),
+                const SizedBox(height: 8),
+                Text('Operator | ${operator.registrationDate}', style: style),
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(flex: 3, child: Text(user.fullName, style: style)),
+                Expanded(flex: 4, child: Text(user.email, style: style)),
+                const Expanded(flex: 2, child: Text('Operator', style: style)),
+                Expanded(
+                  flex: 2,
+                  child: Text(operator.registrationDate, style: style),
+                ),
+              ],
+            ),
     );
   }
 }
@@ -373,11 +551,14 @@ class _RegisterOperatorDialogState extends State<_RegisterOperatorDialog> {
   final TextEditingController _confirmPasswordController =
       TextEditingController();
 
+  final AuthService _registrationService = AuthService();
+
   bool _isLoading = false;
   String? _errorMessage;
 
   @override
   void dispose() {
+    _registrationService.dispose();
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
@@ -428,6 +609,14 @@ class _RegisterOperatorDialogState extends State<_RegisterOperatorDialog> {
       return 'Password must contain at least 8 characters.';
     }
 
+    if (value.length > 128) {
+      return 'Password must not exceed 128 characters.';
+    }
+
+    if (value.trim().isEmpty) {
+      return 'Password cannot contain only spaces.';
+    }
+
     return null;
   }
 
@@ -453,7 +642,7 @@ class _RegisterOperatorDialogState extends State<_RegisterOperatorDialog> {
 
   // ==========================================================
   // REGISTRATION HANDLER
-  // Frontend validation only until API integration.
+  // Registers operators using the authenticated API.
   // ==========================================================
 
   Future<void> _handleRegistration() async {
@@ -469,21 +658,69 @@ class _RegisterOperatorDialogState extends State<_RegisterOperatorDialog> {
       return;
     }
 
+    final manager = SessionManager.instance;
+    final token = manager.accessToken;
+
+    if (!manager.isAdmin || token == null) {
+      setState(() {
+        _errorMessage = 'Administrator access is required.';
+      });
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
 
-    await Future.delayed(const Duration(milliseconds: 700));
+    try {
+      await _registrationService.createOperator(
+        accessToken: token,
+        fullName: _nameController.text,
+        email: _emailController.text,
+        password: _passwordController.text,
+      );
 
-    if (!mounted) return;
+      if (!mounted || manager.accessToken != token) {
+        return;
+      }
 
-    setState(() {
-      _isLoading = false;
+      _passwordController.clear();
+      _confirmPasswordController.clear();
 
-      _errorMessage =
-          'Registration is not connected to the backend yet. '
-          'No account has been created.';
-    });
+      setState(() {
+        _isLoading = false;
+      });
+
+      Navigator.of(context).pop(true);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+
+      if (manager.accessToken != token) return;
+
+      if (error.statusCode == 401) {
+        Navigator.of(context).pop();
+        manager.clearSession();
+        return;
+      }
+
+      setState(() {
+        _errorMessage = error.statusCode == 409
+            ? 'This email address is already registered.'
+            : error.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        _errorMessage = 'Unable to register the operator.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   // ==========================================================
@@ -564,7 +801,7 @@ class _RegisterOperatorDialogState extends State<_RegisterOperatorDialog> {
                   const SizedBox(height: 7),
 
                   const Text(
-                    'Use at least 8 characters.',
+                    'Use 8 to 128 characters.',
                     style: TextStyle(
                       fontSize: 12,
                       color: AppColors.textSecondary,

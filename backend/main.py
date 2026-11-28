@@ -1,7 +1,7 @@
-from fastapi import FastAPI
+﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from db import get_connection
-from app.api.routes import puvs
+from app.api.routes import puvs, auth
 
 app = FastAPI(
     title="PUV Passenger Counting API",
@@ -27,8 +27,19 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Accept", "Content-Type", "Authorization"],
+    allow_methods=[
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "OPTIONS",
+    ],
+    allow_headers=[
+        "Accept",
+        "Content-Type",
+        "Authorization",
+    ],
 )
 
 
@@ -37,6 +48,7 @@ app.add_middleware(
 # ============================================================
 
 app.include_router(puvs.router)
+app.include_router(auth.router)
 
 
 @app.get("/health")
