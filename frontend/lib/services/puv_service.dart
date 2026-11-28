@@ -11,8 +11,11 @@ class PuvService {
       _ownsApiService = apiService == null;
 
   // Retrieve all registered PUV records.
-  Future<List<PuvModel>> getPuvs() async {
-    final data = await _apiService.get(ApiConfig.puvs);
+  Future<List<PuvModel>> getPuvs({String? accessToken}) async {
+    final data = await _apiService.get(
+      ApiConfig.puvs,
+      accessToken: accessToken,
+    );
 
     if (data is! List) {
       throw const ApiException(message: 'Invalid PUV records response.');
@@ -24,41 +27,50 @@ class PuvService {
   }
 
   // Retrieve a specific PUV record.
-  Future<PuvModel> getPuvById(int puvId) async {
+  Future<PuvModel> getPuvById(int puvId, {String? accessToken}) async {
     _validatePuvId(puvId);
 
-    final data = await _apiService.get(ApiConfig.puvById(puvId));
+    final data = await _apiService.get(
+      ApiConfig.puvById(puvId),
+      accessToken: accessToken,
+    );
 
     return _parsePuv(data);
   }
 
   // Register a new PUV.
-  // Connect to the UI only after backend authorization
-  // is implemented.
   Future<PuvModel> createPuv({
     required String puvType,
     required int capacity,
+    String? accessToken,
   }) async {
     final body = PuvModel.requestBody(puvType: puvType, capacity: capacity);
 
-    final data = await _apiService.post(ApiConfig.puvs, body: body);
+    final data = await _apiService.post(
+      ApiConfig.puvs,
+      body: body,
+      accessToken: accessToken,
+    );
 
     return _parsePuv(data);
   }
 
   // Update an existing PUV.
-  // Connect to the UI only after backend authorization
-  // is implemented.
   Future<PuvModel> updatePuv({
     required int puvId,
     required String puvType,
     required int capacity,
+    String? accessToken,
   }) async {
     _validatePuvId(puvId);
 
     final body = PuvModel.requestBody(puvType: puvType, capacity: capacity);
 
-    final data = await _apiService.put(ApiConfig.puvById(puvId), body: body);
+    final data = await _apiService.put(
+      ApiConfig.puvById(puvId),
+      body: body,
+      accessToken: accessToken,
+    );
 
     return _parsePuv(data);
   }

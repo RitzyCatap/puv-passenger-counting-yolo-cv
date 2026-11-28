@@ -1,5 +1,5 @@
-﻿from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field, field_validator
 from psycopg.rows import dict_row
 
 from db import get_connection
@@ -19,6 +19,17 @@ router = APIRouter(
 class PUVCreate(BaseModel):
     puv_type: str = Field(min_length=1, max_length=50)
     capacity: int = Field(gt=0, le=2147483647)
+
+    @field_validator("puv_type", mode="before")
+    @classmethod
+    def normalize_type(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+
+            if not value:
+                raise ValueError("PUV type is required.")
+
+        return value
 
 
 class PUVUpdate(PUVCreate):

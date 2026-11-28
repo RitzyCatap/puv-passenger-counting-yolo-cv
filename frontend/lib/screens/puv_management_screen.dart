@@ -1,6 +1,11 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../constants/app_colors.dart';
+import '../models/puv_model.dart';
+import '../models/puv_summary.dart';
+import '../services/api_service.dart';
+import '../services/puv_service.dart';
+import '../services/session_manager.dart';
 import '../widgets/app_button.dart';
 import '../widgets/app_text_field.dart';
 import '../widgets/dashboard_layout.dart';
@@ -17,27 +22,126 @@ class PuvManagementScreen extends StatefulWidget {
 class _PuvManagementScreenState extends State<PuvManagementScreen> {
   final TextEditingController _searchController = TextEditingController();
 
+  final PuvService _puvService = PuvService();
+
+  final SessionManager _session = SessionManager.instance;
+
+  List<PuvModel> _records = [];
+
+  bool _loading = false;
+  bool _hasLoaded = false;
+  String? _loadError;
+
   bool get _isAdmin => widget.role == DashboardRole.admin;
+
+  bool get _canModify => _isAdmin && _session.isAdmin;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPuvs();
+  }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _puvService.dispose();
     super.dispose();
   }
 
-  // ==========================================================
-  // REGISTER PUV DIALOG
-  // ==========================================================
+  Future<void> _loadPuvs() async {
+    if (_loading) return;
+
+    final token = _session.accessToken;
+
+    if (token == null) {
+      setState(() {
+        _records = [];
+        _hasLoaded = false;
+        _loadError = 'Authentication is required.';
+      });
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
+
+    try {
+      final records = await _puvService.getPuvs(accessToken: token);
+
+      if (!mounted || _session.accessToken != token) {
+        return;
+      }
+
+      setState(() {
+        _records = records;
+        _hasLoaded = true;
+      });
+    } on ApiException catch (error) {
+      if (!mounted || _session.accessToken != token) {
+        return;
+      }
+
+      if (error.statusCode == 401) {
+        _session.clearSession();
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _records = [];
+        _hasLoaded = false;
+        _loadError = error.message;
+      });
+    } catch (_) {
+      if (!mounted || _session.accessToken != token) {
+        return;
+      }
+
+      setState(() {
+        _records = [];
+        _hasLoaded = false;
+        _loadError = 'Unable to load vehicle records.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
 
   Future<void> _openRegistrationDialog() async {
-    if (!_isAdmin) return;
+    await _openVehicleDialog();
+  }
 
-    await showDialog<void>(
+  Future<void> _openVehicleDialog({PuvModel? existing}) async {
+    if (!_canModify || _loading) return;
+
+    final saved = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (context) {
-        return const _RegisterPuvDialog();
+        return _RegisterPuvDialog(existing: existing);
       },
     );
+
+    if (!mounted || saved != true) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          existing == null
+              ? 'PUV registered successfully.'
+              : 'PUV updated successfully.',
+        ),
+      ),
+    );
+
+    await _loadPuvs();
   }
 
   // ==========================================================
@@ -120,7 +224,9 @@ class _PuvManagementScreenState extends State<PuvManagementScreen> {
             AppButton(
               label: 'Register PUV',
               icon: Icons.add,
-              onPressed: _openRegistrationDialog,
+              onPressed: _canModify && !_loading
+                  ? _openRegistrationDialog
+                  : null,
             ),
         ],
       ),
@@ -190,20 +296,27 @@ class _PuvManagementScreenState extends State<PuvManagementScreen> {
   // ==========================================================
 
   Widget _buildStatistics(bool isMobile) {
-    const cards = [
+    final summary = PuvSummary.fromRecords(_records);
+
+    final available = _hasLoaded && _loadError == null;
+
+    final cards = [
       _PuvStatisticCard(
+        value: available ? summary.registeredCount.toString() : '—',
         title: 'Registered PUVs',
         description: 'Total vehicles in the system',
         icon: Icons.directions_bus_outlined,
       ),
 
       _PuvStatisticCard(
+        value: available ? summary.vehicleTypeCount.toString() : '—',
         title: 'Vehicle types',
         description: 'Registered vehicle categories',
         icon: Icons.category_outlined,
       ),
 
       _PuvStatisticCard(
+        value: available ? summary.totalCapacity.toString() : '—',
         title: 'Total capacity',
         description: 'Combined registered capacity',
         icon: Icons.groups_outlined,
@@ -214,9 +327,9 @@ class _PuvManagementScreenState extends State<PuvManagementScreen> {
       return Column(
         children: [
           cards[0],
-          SizedBox(height: 12),
+          const SizedBox(height: 12),
           cards[1],
-          SizedBox(height: 12),
+          const SizedBox(height: 12),
           cards[2],
         ],
       );
@@ -226,9 +339,9 @@ class _PuvManagementScreenState extends State<PuvManagementScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(child: cards[0]),
-        SizedBox(width: 14),
+        const SizedBox(width: 14),
         Expanded(child: cards[1]),
-        SizedBox(width: 14),
+        const SizedBox(width: 14),
         Expanded(child: cards[2]),
       ],
     );
@@ -284,8 +397,8 @@ class _PuvManagementScreenState extends State<PuvManagementScreen> {
                   child: TextField(
                     controller: _searchController,
 
-                    // Enabled after API integration.
-                    enabled: false,
+                    enabled: !_loading && _hasLoaded,
+                    onChanged: (_) => setState(() {}),
 
                     decoration: const InputDecoration(
                       hintText: 'Search by PUV type or ID',
@@ -301,7 +414,7 @@ class _PuvManagementScreenState extends State<PuvManagementScreen> {
 
           if (!isMobile) _buildTableHeader(),
 
-          _buildUnavailableState(),
+          _buildVehicleRecords(isMobile),
         ],
       ),
     );
@@ -334,68 +447,188 @@ class _PuvManagementScreenState extends State<PuvManagementScreen> {
   }
 
   // ==========================================================
-  // UNAVAILABLE STATE
+  // VEHICLE RECORDS
   // ==========================================================
 
-  Widget _buildUnavailableState() {
+  Widget _buildVehicleRecords(bool isMobile) {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.all(40),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_loadError != null) {
+      return _buildRecordMessage(
+        message: _loadError!,
+        icon: Icons.error_outline,
+      );
+    }
+
+    final filtered = PuvSummary.search(_records, _searchController.text);
+
+    return Column(
+      children: [
+        if (filtered.isEmpty)
+          _buildRecordMessage(
+            message: _records.isEmpty
+                ? 'No vehicles registered yet.'
+                : 'No matching vehicles found.',
+            icon: Icons.directions_bus_outlined,
+          )
+        else
+          for (final record in filtered) _buildVehicleRow(record, isMobile),
+
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Showing ${filtered.length} '
+                  'of ${_records.length} vehicles',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+
+              IconButton(
+                tooltip: 'Refresh vehicle records',
+                onPressed: _loadPuvs,
+                icon: const Icon(Icons.refresh),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRecordMessage({
+    required String message,
+    required IconData icon,
+  }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 55),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 45),
       child: Center(
         child: Column(
           children: [
-            Container(
-              width: 65,
-              height: 65,
-              decoration: BoxDecoration(
-                color: AppColors.primaryLight,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                Icons.directions_bus_outlined,
-                color: AppColors.primary,
-                size: 32,
-              ),
-            ),
+            Icon(icon, size: 42, color: AppColors.primary),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
 
-            const Text(
-              'Vehicle records unavailable',
+            Text(
+              message,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
-              ),
-            ),
-
-            const SizedBox(height: 9),
-
-            const Text(
-              'Registered vehicle information will '
-              'appear here once the backend API '
-              'is connected.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                height: 1.6,
+              style: const TextStyle(
+                fontSize: 14,
                 color: AppColors.textSecondary,
               ),
             ),
 
-            if (_isAdmin) ...[
-              const SizedBox(height: 22),
+            const SizedBox(height: 18),
 
+            if (_loadError != null)
+              AppButton(
+                label: 'Try again',
+                icon: Icons.refresh,
+                type: AppButtonType.secondary,
+                onPressed: _loadPuvs,
+              )
+            else if (_records.isEmpty && _canModify)
               AppButton(
                 label: 'Register PUV',
                 icon: Icons.add,
                 type: AppButtonType.secondary,
                 onPressed: _openRegistrationDialog,
               ),
-            ],
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildVehicleRow(PuvModel record, bool isMobile) {
+    const style = TextStyle(fontSize: 13, color: AppColors.textPrimary);
+
+    final registered = PuvSummary.registrationDate(record.createdAt);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppColors.border)),
+      ),
+      child: isMobile
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  record.puvType,
+                  style: const TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                Text('PUV ID: ${record.puvId}', style: style),
+
+                Text('Capacity: ${record.capacity}', style: style),
+
+                Text('Registered: $registered', style: style),
+
+                if (_canModify) ...[
+                  const SizedBox(height: 12),
+
+                  AppButton(
+                    label: 'Edit PUV',
+                    icon: Icons.edit_outlined,
+                    type: AppButtonType.secondary,
+                    onPressed: () => _openVehicleDialog(existing: record),
+                  ),
+                ],
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: Text(record.puvId.toString(), style: style),
+                ),
+
+                Expanded(flex: 3, child: Text(record.puvType, style: style)),
+
+                Expanded(
+                  flex: 2,
+                  child: Text(record.capacity.toString(), style: style),
+                ),
+
+                Expanded(flex: 3, child: Text(registered, style: style)),
+
+                if (_isAdmin)
+                  Expanded(
+                    flex: 2,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: IconButton(
+                        tooltip: 'Edit PUV',
+                        icon: const Icon(
+                          Icons.edit_outlined,
+                          color: AppColors.primary,
+                        ),
+                        onPressed: _canModify
+                            ? () => _openVehicleDialog(existing: record)
+                            : null,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
     );
   }
 }
@@ -408,11 +641,13 @@ class _PuvStatisticCard extends StatelessWidget {
   final String title;
   final String description;
   final IconData icon;
+  final String value;
 
   const _PuvStatisticCard({
     required this.title,
     required this.description,
     required this.icon,
+    required this.value,
   });
 
   @override
@@ -451,9 +686,9 @@ class _PuvStatisticCard extends StatelessWidget {
 
           const SizedBox(height: 8),
 
-          const Text(
-            '—',
-            style: TextStyle(
+          Text(
+            value,
+            style: const TextStyle(
               fontSize: 29,
               fontWeight: FontWeight.w700,
               color: AppColors.primary,
@@ -503,7 +738,9 @@ class _PuvTableHeading extends StatelessWidget {
 // ============================================================
 
 class _RegisterPuvDialog extends StatefulWidget {
-  const _RegisterPuvDialog();
+  final PuvModel? existing;
+
+  const _RegisterPuvDialog({this.existing});
 
   @override
   State<_RegisterPuvDialog> createState() => _RegisterPuvDialogState();
@@ -516,11 +753,28 @@ class _RegisterPuvDialogState extends State<_RegisterPuvDialog> {
 
   final TextEditingController _capacityController = TextEditingController();
 
+  final PuvService _dialogService = PuvService();
+
   bool _isLoading = false;
   String? _errorMessage;
 
+  bool get _isEditing => widget.existing != null;
+
+  @override
+  void initState() {
+    super.initState();
+
+    final existing = widget.existing;
+
+    if (existing != null) {
+      _typeController.text = existing.puvType;
+      _capacityController.text = existing.capacity.toString();
+    }
+  }
+
   @override
   void dispose() {
+    _dialogService.dispose();
     _typeController.dispose();
     _capacityController.dispose();
     super.dispose();
@@ -535,7 +789,7 @@ class _RegisterPuvDialogState extends State<_RegisterPuvDialog> {
       return 'Please enter the PUV type.';
     }
 
-    if (value.trim().length > 50) {
+    if (value.trim().runes.length > 50) {
       return 'PUV type must not exceed 50 characters.';
     }
 
@@ -576,7 +830,7 @@ class _RegisterPuvDialogState extends State<_RegisterPuvDialog> {
 
   // ==========================================================
   // REGISTRATION HANDLER
-  // Frontend validation only until API integration.
+  // Saves vehicle information using the authenticated API.
   // ==========================================================
 
   Future<void> _handleRegistration() async {
@@ -592,22 +846,74 @@ class _RegisterPuvDialogState extends State<_RegisterPuvDialog> {
       return;
     }
 
+    final session = SessionManager.instance;
+    final token = session.accessToken;
+
+    if (!session.isAdmin || token == null) {
+      setState(() {
+        _errorMessage = 'Administrator access is required.';
+      });
+      return;
+    }
+
+    final capacity = int.parse(_capacityController.text.trim());
+
     setState(() {
       _isLoading = true;
     });
 
-    await Future.delayed(const Duration(milliseconds: 700));
+    try {
+      if (_isEditing) {
+        await _dialogService.updatePuv(
+          puvId: widget.existing!.puvId,
+          puvType: _typeController.text,
+          capacity: capacity,
+          accessToken: token,
+        );
+      } else {
+        await _dialogService.createPuv(
+          puvType: _typeController.text,
+          capacity: capacity,
+          accessToken: token,
+        );
+      }
 
-    if (!mounted) return;
+      if (!mounted || session.accessToken != token) {
+        return;
+      }
 
-    setState(() {
-      _isLoading = false;
+      setState(() {
+        _isLoading = false;
+      });
 
-      _errorMessage =
-          'PUV registration is not connected '
-          'to the backend yet. No vehicle '
-          'record has been created.';
-    });
+      Navigator.of(context).pop(true);
+    } on ApiException catch (error) {
+      if (!mounted || session.accessToken != token) {
+        return;
+      }
+
+      if (error.statusCode == 401) {
+        Navigator.of(context).pop();
+        session.clearSession();
+        return;
+      }
+
+      setState(() {
+        _errorMessage = error.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        _errorMessage = 'Unable to save vehicle information.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   // ==========================================================
@@ -695,8 +1001,8 @@ class _RegisterPuvDialogState extends State<_RegisterPuvDialog> {
                   const SizedBox(height: 20),
 
                   AppButton(
-                    label: 'Register PUV',
-                    icon: Icons.add,
+                    label: _isEditing ? 'Save changes' : 'Register PUV',
+                    icon: _isEditing ? Icons.save_outlined : Icons.add,
                     fullWidth: true,
                     isLoading: _isLoading,
                     onPressed: _handleRegistration,
@@ -763,9 +1069,9 @@ class _RegisterPuvDialogState extends State<_RegisterPuvDialog> {
 
         const SizedBox(height: 17),
 
-        const Text(
-          'Register PUV',
-          style: TextStyle(
+        Text(
+          _isEditing ? 'Edit PUV' : 'Register PUV',
+          style: const TextStyle(
             fontSize: 23,
             fontWeight: FontWeight.w700,
             color: AppColors.primary,
@@ -775,10 +1081,12 @@ class _RegisterPuvDialogState extends State<_RegisterPuvDialog> {
 
         const SizedBox(height: 8),
 
-        const Text(
-          'Enter the vehicle information to register '
-          'a public utility vehicle in SakaySense.',
-          style: TextStyle(
+        Text(
+          _isEditing
+              ? 'Update the registered vehicle information.'
+              : 'Enter the vehicle information to register '
+                    'a public utility vehicle in SakaySense.',
+          style: const TextStyle(
             fontSize: 13,
             height: 1.6,
             color: AppColors.textSecondary,
@@ -800,18 +1108,18 @@ class _RegisterPuvDialogState extends State<_RegisterPuvDialog> {
         color: AppColors.primaryLight,
         borderRadius: BorderRadius.circular(8),
       ),
-      child: const Row(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.info_outline, color: AppColors.primary, size: 22),
+          const Icon(Icons.info_outline, color: AppColors.primary, size: 22),
 
-          SizedBox(width: 12),
+          const SizedBox(width: 12),
 
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'Vehicle identification',
                   style: TextStyle(
                     fontSize: 13,
@@ -820,14 +1128,17 @@ class _RegisterPuvDialogState extends State<_RegisterPuvDialog> {
                   ),
                 ),
 
-                SizedBox(height: 5),
+                const SizedBox(height: 5),
 
                 Text(
-                  'The PUV ID and registration date '
-                  'will be generated automatically '
-                  'by the backend when the vehicle '
-                  'is registered.',
-                  style: TextStyle(
+                  _isEditing
+                      ? 'PUV ID ${widget.existing!.puvId} '
+                            'and its registration date will be preserved.'
+                      : 'The PUV ID and registration date '
+                            'will be generated automatically '
+                            'by the backend when the vehicle '
+                            'is registered.',
+                  style: const TextStyle(
                     fontSize: 12,
                     height: 1.5,
                     color: AppColors.textSecondary,
